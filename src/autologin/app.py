@@ -978,17 +978,29 @@ class AutoLogin(QMainWindow):
         ok_box_alert("Success", f"{client_id} updated successfully!")
 
     def check_for_updates_on_startup(self):
-        """Check for updates silently on startup."""
+        """Check for updates on startup with status bar feedback."""
+        self.statusBar().showMessage("Checking for updates...", 5000)
+        
         def on_update_available(new_version, download_url, release_notes):
             # Use QTimer to run dialog on main thread
             QTimer.singleShot(0, lambda: self._show_update_dialog(
                 new_version, download_url, release_notes
             ))
         
+        def on_no_update():
+            QTimer.singleShot(0, lambda: self.statusBar().showMessage(
+                "You're running the latest version!", 3000
+            ))
+        
+        def on_error(error):
+            QTimer.singleShot(0, lambda: self.statusBar().showMessage(
+                "Could not check for updates", 3000
+            ))
+        
         self.update_checker = UpdateChecker(
             on_update_available=on_update_available,
-            on_no_update=None,  # Silent on startup
-            on_error=None  # Silent on startup
+            on_no_update=on_no_update,
+            on_error=on_error
         )
         self.update_checker.check_async()
     
@@ -1025,7 +1037,8 @@ class AutoLogin(QMainWindow):
             self,
             current_version,
             new_version,
-            release_notes or ""
+            release_notes or "",
+            download_url  # Pass the download URL to the dialog
         )
         
         if dialog.exec_() and download_url:

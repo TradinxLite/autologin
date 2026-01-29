@@ -24,30 +24,89 @@ logger = logging.getLogger(__name__)
 GITHUB_REPO = "TradinxLite/autologin"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 
+# Hardcoded version as fallback (updated during build)
+APP_VERSION = "1.0.1"
+
 
 def get_current_version() -> str:
-    """Get the current application version from package metadata."""
+    """Get the current application version."""
     try:
+        # First try to get from package metadata
         import importlib.metadata
         return importlib.metadata.version("autologin")
     except Exception:
-        return "0.0.0"
+        pass
+    
+    # Fallback to hardcoded version
+    return APP_VERSION
 
 
-def get_platform_asset_pattern() -> str:
-    """Get the expected asset filename pattern for the current platform."""
+def get_platform_info() -> Tuple[str, str]:
+    """Get platform system and machine info."""
     system = platform.system().lower()
     machine = platform.machine().lower()
+    return system, machine
+
+
+def get_platform_asset_suffix() -> str:
+    """Get the expected asset file extension for the current platform."""
+    system, _ = get_platform_info()
     
     if system == "darwin":
-        return "AutoLogin-macos"
+        return ".dmg"
     elif system == "windows":
-        return "AutoLogin-windows"
+        return ".msi"
     elif system == "linux":
-        if "arm" in machine or "aarch64" in machine:
-            return "AutoLogin-linux-arm"
-        return "AutoLogin-linux"
+        return ".AppImage"
     return ""
+
+
+def find_platform_asset(assets: list) -> Optional[dict]:
+    """
+    Find the correct asset for the current platform from the release assets.
+    
+    Args:
+        assets: List of asset dictionaries from GitHub API
+        
+    Returns:
+        The matching asset dict, or None
+    """
+    system, machine = get_platform_info()
+    suffix = get_platform_asset_suffix()
+    
+    if not suffix:
+        return None
+    
+    # Find assets matching our platform
+    matching_assets = []
+    
+    for asset in assets:
+        name = asset.get("name", "").lower()
+        
+        # Must have correct extension
+        if not name.endswith(suffix.lower()):
+            continue
+        
+        # Platform-specific checks
+        if system == "darwin":
+            if "macos" in name or "darwin" in name or name.endswith(".dmg"):
+                matching_assets.append(asset)
+        elif system == "windows":
+            if "windows" in name or "win" in name or name.endswith(".msi"):
+                matching_assets.append(asset)
+        elif system == "linux":
+            if "linux" in name or "appimage" in name.lower():
+                # Check architecture
+                if "arm" in machine or "aarch64" in machine:
+                    if "arm" in name or "aarch64" in name:
+                        matching_assets.append(asset)
+                else:
+                    # x86_64 - exclude arm builds
+                    if "arm" not in name and "aarch64" not in name:
+                        matching_assets.append(asset)
+    
+    # Return first matching asset
+    return matching_assets[0] if matching_assets else None
 
 
 def check_for_updates() -> Tuple[bool, Optional[str], Optional[str], Optional[str]]:
@@ -58,32 +117,48 @@ def check_for_updates() -> Tuple[bool, Optional[str], Optional[str], Optional[st
         Tuple of (update_available, latest_version, download_url, release_notes)
     """
     try:
+        logger.info("Checking for updates...")
+        
         headers = {"Accept": "application/vnd.github.v3+json"}
-        response = requests.get(GITHUB_API_URL, headers=headers, timeout=10)
+        response = requests.get(GITHUB_API_URL, headers=headers, timeout=15)
         response.raise_for_status()
         
         release_data = response.json()
-        latest_version = release_data.get("tag_name", "").lstrip("v")
+        tag_name = release_data.get("tag_name", "")
+        latest_version = tag_name.lstrip("v")
         release_notes = release_data.get("body", "")
         
         current = get_current_version()
         
+        logger.info(f"Current version: {current}, Latest version: {latest_version}")
+        
         if not latest_version:
+            logger.warning("Could not determine latest version from release")
             return False, None, None, None
         
         # Compare versions
         try:
-            if version.parse(latest_version) > version.parse(current):
+            current_ver = version.parse(current)
+            latest_ver = version.parse(latest_version)
+            
+            logger.info(f"Parsed versions - Current: {current_ver}, Latest: {latest_ver}")
+            
+            if latest_ver > current_ver:
+                logger.info("Update available!")
+                
                 # Find the appropriate asset for this platform
-                pattern = get_platform_asset_pattern()
-                download_url = None
+                asset = find_platform_asset(release_data.get("assets", []))
                 
-                for asset in release_data.get("assets", []):
-                    if pattern and pattern in asset.get("name", ""):
-                        download_url = asset.get("browser_download_url")
-                        break
+                if asset:
+                    download_url = asset.get("browser_download_url")
+                    logger.info(f"Found download URL: {download_url}")
+                    return True, latest_version, download_url, release_notes
+                else:
+                    logger.warning("No suitable asset found for this platform")
+                    return True, latest_version, None, release_notes
+            else:
+                logger.info("No update available - current version is up to date")
                 
-                return True, latest_version, download_url, release_notes
         except Exception as e:
             logger.warning(f"Version comparison failed: {e}")
         
@@ -91,10 +166,10 @@ def check_for_updates() -> Tuple[bool, Optional[str], Optional[str], Optional[st
         
     except requests.RequestException as e:
         logger.warning(f"Failed to check for updates: {e}")
-        return False, None, None, None
+        return False, None, None, str(e)
     except Exception as e:
         logger.error(f"Unexpected error checking for updates: {e}")
-        return False, None, None, None
+        return False, None, None, str(e)
 
 
 def download_update(
@@ -112,6 +187,8 @@ def download_update(
         Path to downloaded file, or None on failure
     """
     try:
+        logger.info(f"Downloading update from: {download_url}")
+        
         response = requests.get(download_url, stream=True, timeout=300)
         response.raise_for_status()
         
@@ -119,14 +196,24 @@ def download_update(
         
         # Create temp file with appropriate extension
         suffix = Path(download_url).suffix or ".zip"
-        temp_file = tempfile.NamedTemporaryFile(
-            delete=False, suffix=suffix, prefix="autologin_update_"
-        )
+        # Ensure the suffix is valid
+        if suffix not in [".msi", ".dmg", ".AppImage", ".zip", ".exe", ".deb"]:
+            suffix = ".zip"
+        
+        # Use a proper download directory
+        download_dir = Path(tempfile.gettempdir()) / "autologin_updates"
+        download_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Extract filename from URL
+        filename = Path(download_url).name
+        temp_file = download_dir / filename
         
         downloaded = 0
         chunk_size = 8192
         
-        with open(temp_file.name, "wb") as f:
+        logger.info(f"Downloading to: {temp_file}")
+        
+        with open(temp_file, "wb") as f:
             for chunk in response.iter_content(chunk_size=chunk_size):
                 if chunk:
                     f.write(chunk)
@@ -134,7 +221,8 @@ def download_update(
                     if progress_callback:
                         progress_callback(downloaded, total_size)
         
-        return Path(temp_file.name)
+        logger.info(f"Download complete: {temp_file}")
+        return temp_file
         
     except Exception as e:
         logger.error(f"Failed to download update: {e}")
@@ -146,9 +234,11 @@ def apply_update(update_file: Path) -> bool:
     Apply the downloaded update.
     Platform-specific installation logic.
     """
-    system = platform.system().lower()
+    system, _ = get_platform_info()
     
     try:
+        logger.info(f"Applying update from: {update_file}")
+        
         if system == "darwin":
             return _apply_macos_update(update_file)
         elif system == "windows":
@@ -178,15 +268,25 @@ def _apply_windows_update(update_file: Path) -> bool:
     """Apply update on Windows."""
     # Launch installer
     if update_file.suffix in [".msi", ".exe"]:
-        subprocess.Popen([str(update_file)], shell=True)
-        return True
+        # Use ShellExecute to run with proper permissions
+        logger.info(f"Launching Windows installer: {update_file}")
+        
+        # Start the installer and exit the app
+        # Using os.startfile for proper Windows handling
+        try:
+            os.startfile(str(update_file))
+            return True
+        except Exception:
+            # Fallback to subprocess
+            subprocess.Popen([str(update_file)], shell=True)
+            return True
     return False
 
 
 def _apply_linux_update(update_file: Path) -> bool:
     """Apply update on Linux."""
     # For .AppImage files
-    if "AppImage" in update_file.name:
+    if "AppImage" in update_file.name or update_file.suffix == ".AppImage":
         # Make executable and open containing directory
         update_file.chmod(0o755)
         subprocess.run(["xdg-open", str(update_file.parent)])
@@ -205,15 +305,19 @@ class UpdateChecker:
         self,
         on_update_available: Optional[Callable[[str, str, str], None]] = None,
         on_no_update: Optional[Callable[[], None]] = None,
-        on_error: Optional[Callable[[str], None]] = None
+        on_error: Optional[Callable[[str], None]] = None,
+        on_checking: Optional[Callable[[], None]] = None
     ):
         self.on_update_available = on_update_available
         self.on_no_update = on_no_update
         self.on_error = on_error
+        self.on_checking = on_checking
         self._thread: Optional[threading.Thread] = None
     
     def check_async(self):
         """Check for updates in a background thread."""
+        if self.on_checking:
+            self.on_checking()
         self._thread = threading.Thread(target=self._check_worker, daemon=True)
         self._thread.start()
     
@@ -223,9 +327,10 @@ class UpdateChecker:
             has_update, new_version, url, notes = check_for_updates()
             
             if has_update and self.on_update_available:
-                self.on_update_available(new_version, url, notes)
+                self.on_update_available(new_version, url, notes or "")
             elif not has_update and self.on_no_update:
                 self.on_no_update()
         except Exception as e:
+            logger.exception("Update check failed")
             if self.on_error:
                 self.on_error(str(e))
