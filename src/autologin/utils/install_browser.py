@@ -103,11 +103,42 @@ def install_browser_via_python_api(progress_callback=None) -> bool:
         from playwright._impl._driver import get_driver_env
         
         driver_executable = compute_driver_executable()
+        report(f"Computed driver executable: {driver_executable}")
+        
+        # Verify if driver exists
+        if not os.path.exists(driver_executable):
+            report(f"Driver executable missing at: {driver_executable}")
+            report("Searching for node executable in app directories...")
+            
+            # Manual search for node.exe/node in site-packages/playwright
+            found_driver = find_manual_driver()
+            if found_driver:
+                driver_executable = found_driver
+                report(f"Found driver manually at: {driver_executable}")
+            else:
+                report("Could not find node executable anywhere.")
+                # List playwright dir contents for debugging
+                try:
+                    import playwright
+                    package_root = Path(playwright.__file__).parent
+                    report(f"Listing playwright package dir: {package_root}")
+                    for root, dirs, files in os.walk(package_root):
+                        for f in files:
+                            report(f"  {os.path.join(root, f)}")
+                except Exception as e:
+                    report(f"Could not list directory: {e}")
+
         env = get_driver_env()
         env["PLAYWRIGHT_BROWSERS_PATH"] = str(browsers_path)
         
         report(f"Installing Chromium to: {browsers_path}")
         
+        # Ensure executable permission for driver
+        try:
+            os.chmod(driver_executable, 0o755)
+        except Exception:
+            pass
+
         result = subprocess.run(
             [str(driver_executable), "install", "chromium"],
             capture_output=True,
@@ -136,6 +167,44 @@ def install_browser_via_python_api(progress_callback=None) -> bool:
         else:
             logging.warning(f"Driver install failed: {result.stderr}")
             return False
+
+def find_manual_driver():
+    """Search for the playwright node driver in common locations."""
+    node_name = "node.exe" if sys.platform == "win32" else "node"
+    
+    # 1. Search in playwright package location
+    try:
+        import playwright
+        package_root = Path(playwright.__file__).parent
+        
+        # Standard location: driver/package/node_modules/playwright-core/.local-browsers/ (no that's browsers)
+        # Standard location: driver/node
+        driver_dir = package_root / "driver"
+        possible_path = driver_dir / node_name
+        if possible_path.exists():
+            return str(possible_path)
+            
+        # Recursive search in package
+        for path in package_root.rglob(node_name):
+            return str(path)
+            
+    except ImportError:
+        pass
+        
+    # 2. Search in sys.executable directory (sometimes bundled there)
+    try:
+        base_dir = Path(sys.executable).parent
+        possible_path = base_dir / node_name
+        if possible_path.exists():
+            return str(possible_path)
+            
+        # Recursive search in app dir
+        for path in base_dir.rglob(node_name):
+            return str(path)
+    except Exception:
+        pass
+        
+    return None
             
     except ImportError as e:
         logging.warning(f"Could not import playwright internals: {e}")
