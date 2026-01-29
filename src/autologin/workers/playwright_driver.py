@@ -5,6 +5,7 @@ Replaces Selenium/undetected_chromedriver with Playwright for more stable browse
 
 import asyncio
 import os
+import logging
 import psutil
 from pathlib import Path
 from platformdirs import user_data_dir

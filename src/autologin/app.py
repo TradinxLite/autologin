@@ -100,6 +100,12 @@ class AutoLogin(QMainWindow):
         self.background_button.clicked.connect(self.set_headless)
         self.modify_acc_button.clicked.connect(self.modify_selected_account)
         
+        # Initialize Log Console immediately to capture startup logs
+        # We import here or at top level. Top level is better but clean.
+        from autologin.dialogs.log_console import LogConsole
+        self.log_console = LogConsole(self)
+        logging.info("Application starting... Log Console initialized.")
+        
         # Initialize with detected optimal concurrency
         self.max_concurrent = detect_optimal_concurrency()
         
@@ -158,10 +164,12 @@ class AutoLogin(QMainWindow):
     def setup_menu_bar(self):
         """Setup menu bar with File menu for directory access"""
         menubar = self.menuBar()
+        menubar.clear()  # Clear existing menus to prevent duplicates
+        menubar.setNativeMenuBar(True)  # Use native macOS menu bar
 
         # File menu
         file_menu = menubar.addMenu('&File')
-
+        
         # Open Installation Directory
         open_install_dir_action = file_menu.addAction('Open Installation Directory')
         open_install_dir_action.setStatusTip('Open the application installation directory')
