@@ -187,10 +187,14 @@ class AutoLogin(QMainWindow):
         check_updates_action.setStatusTip('Check for application updates')
         check_updates_action.triggered.connect(self.check_for_updates_manual)
         
+        # Show Logs
+        logs_action = help_menu.addAction('Show Logs')
+        logs_action.setStatusTip('Show application logs')
+        logs_action.triggered.connect(self.show_log_console)
+        
         help_menu.addSeparator()
 
         about_action = help_menu.addAction('About')
-        about_action.setStatusTip('About this application')
         about_action.triggered.connect(self.show_about_dialog)
 
     def open_installation_directory(self):
@@ -1028,6 +1032,16 @@ class AutoLogin(QMainWindow):
             on_error=on_error
         )
         self.update_checker.check_async()
+
+    def show_log_console(self):
+        """Show the log console window."""
+        if not hasattr(self, 'log_console'):
+            from autologin.dialogs.log_console import LogConsole
+            self.log_console = LogConsole(self)
+        
+        self.log_console.show()
+        self.log_console.raise_()
+        self.log_console.activateWindow()
     
     def _show_update_dialog(self, new_version, download_url, release_notes):
         """Show the update available dialog."""
