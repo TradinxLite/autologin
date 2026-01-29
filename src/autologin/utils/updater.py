@@ -16,7 +16,12 @@ from pathlib import Path
 from typing import Optional, Tuple, Callable
 
 import requests
-from packaging import version
+# Try to import packaging, but define fallback if missing
+try:
+    from packaging import version
+    HAS_PACKAGING = True
+except ImportError:
+    HAS_PACKAGING = False
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +30,7 @@ GITHUB_REPO = "TradinxLite/autologin"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 
 # Hardcoded version as fallback (updated during build)
-APP_VERSION = "1.0.2"
+APP_VERSION = "1.0.3"
 
 
 def get_current_version() -> str:
@@ -39,6 +44,45 @@ def get_current_version() -> str:
     
     # Fallback to hardcoded version
     return APP_VERSION
+
+
+def parse_version_fallback(v_str: str) -> tuple:
+    """
+    Parse version string to tuple of integers for comparison.
+    Handles '1.0.0', 'v1.0.0', '1.0', etc.
+    """
+    try:
+        # Strip leading v
+        v_str = v_str.lstrip('v').strip()
+        # Split by dot and convert to int (ignoring non-numeric parts like -beta)
+        parts = []
+        for part in v_str.split('.'):
+            # Extract numeric part
+            num = ''.join(c for c in part if c.isdigit())
+            if num:
+                parts.append(int(num))
+        return tuple(parts)
+    except Exception:
+        return (0, 0, 0)
+
+
+def is_version_newer(latest: str, current: str) -> bool:
+    """
+    Compare versions using packaging if available, or fallback logic.
+    Returns True if latest > current.
+    """
+    if HAS_PACKAGING:
+        try:
+            return version.parse(latest) > version.parse(current)
+        except Exception:
+            logger.warning("Packaging version comparison failed, using fallback")
+    
+    # Fallback comparison
+    try:
+        return parse_version_fallback(latest) > parse_version_fallback(current)
+    except Exception as e:
+        logger.error(f"Version comparison failed: {e}")
+        return False
 
 
 def get_platform_info() -> Tuple[str, str]:
@@ -64,12 +108,6 @@ def get_platform_asset_suffix() -> str:
 def find_platform_asset(assets: list) -> Optional[dict]:
     """
     Find the correct asset for the current platform from the release assets.
-    
-    Args:
-        assets: List of asset dictionaries from GitHub API
-        
-    Returns:
-        The matching asset dict, or None
     """
     system, machine = get_platform_info()
     suffix = get_platform_asset_suffix()
@@ -112,9 +150,6 @@ def find_platform_asset(assets: list) -> Optional[dict]:
 def check_for_updates() -> Tuple[bool, Optional[str], Optional[str], Optional[str]]:
     """
     Check GitHub for the latest release.
-    
-    Returns:
-        Tuple of (update_available, latest_version, download_url, release_notes)
     """
     try:
         logger.info("Checking for updates...")
@@ -137,32 +172,22 @@ def check_for_updates() -> Tuple[bool, Optional[str], Optional[str], Optional[st
             return False, None, None, None
         
         # Compare versions
-        try:
-            current_ver = version.parse(current)
-            latest_ver = version.parse(latest_version)
+        if is_version_newer(latest_version, current):
+            logger.info("Update available!")
             
-            logger.info(f"Parsed versions - Current: {current_ver}, Latest: {latest_ver}")
+            # Find the appropriate asset for this platform
+            asset = find_platform_asset(release_data.get("assets", []))
             
-            if latest_ver > current_ver:
-                logger.info("Update available!")
-                
-                # Find the appropriate asset for this platform
-                asset = find_platform_asset(release_data.get("assets", []))
-                
-                if asset:
-                    download_url = asset.get("browser_download_url")
-                    logger.info(f"Found download URL: {download_url}")
-                    return True, latest_version, download_url, release_notes
-                else:
-                    logger.warning("No suitable asset found for this platform")
-                    return True, latest_version, None, release_notes
+            if asset:
+                download_url = asset.get("browser_download_url")
+                logger.info(f"Found download URL: {download_url}")
+                return True, latest_version, download_url, release_notes
             else:
-                logger.info("No update available - current version is up to date")
-                
-        except Exception as e:
-            logger.warning(f"Version comparison failed: {e}")
-        
-        return False, latest_version, None, None
+                logger.warning("No suitable asset found for this platform")
+                return True, latest_version, None, release_notes
+        else:
+            logger.info("No update available - current version is up to date")
+            return False, latest_version, None, None
         
     except requests.RequestException as e:
         logger.warning(f"Failed to check for updates: {e}")
