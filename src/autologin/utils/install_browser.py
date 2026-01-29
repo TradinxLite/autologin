@@ -118,6 +118,20 @@ def install_browser_via_python_api(progress_callback=None) -> bool:
         
         if result.returncode == 0:
             report("Browser installation completed successfully!")
+            
+            # Verify and fix permissions
+            try:
+                from playwright.sync_api import sync_playwright
+                with sync_playwright() as p:
+                    exe_path = p.chromium.executable_path
+                    if exe_path and os.path.exists(exe_path):
+                        report(f"Verifying permissions for: {exe_path}")
+                        # Ensure executable has +x perms
+                        st = os.stat(exe_path)
+                        os.chmod(exe_path, st.st_mode | 0o111)
+            except Exception as e:
+                logging.warning(f"Permission fix failed: {e}")
+                
             return True
         else:
             logging.warning(f"Driver install failed: {result.stderr}")

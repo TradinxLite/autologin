@@ -107,6 +107,8 @@ class PlaywrightDriver:
                     '--disable-features=IsolateOrigins,site-per-process',
                     '--disable-infobars',
                     '--window-size=1920,1080',
+                    '--disable-gpu',
+                    '--disable-software-rasterizer',
                 ]
             )
         except Exception as e:
