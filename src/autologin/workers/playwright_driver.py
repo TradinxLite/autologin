@@ -1,0 +1,184 @@
+"""
+Playwright-based browser automation driver.
+Replaces Selenium/undetected_chromedriver with Playwright for more stable browser automation.
+"""
+
+import asyncio
+import os
+import psutil
+from pathlib import Path
+from platformdirs import user_data_dir
+from playwright.async_api import async_playwright, Browser, BrowserContext, Page, Playwright
+
+
+def get_data_dir():
+    """Get the application data directory."""
+    return Path(user_data_dir(appname="AutoLogin")) / "data"
+
+
+def detect_optimal_concurrency() -> int:
+    """
+    Detect optimal concurrency based on system resources.
+    
+    Rules:
+    - Base: 1 worker per 2GB RAM available (minimum 2GB reserved for system)
+    - Cap at CPU cores (to avoid context switching overhead)
+    - Minimum: 2, Maximum: 15
+    
+    Each browser context uses approximately:
+    - 150-300MB RAM in headless mode
+    - 300-500MB RAM in headed mode
+    """
+    try:
+        # Get available memory in GB
+        memory = psutil.virtual_memory()
+        available_gb = memory.available / (1024 ** 3)
+        
+        # Reserve 2GB for system, use 500MB per worker as estimate
+        usable_memory = max(0, available_gb - 2)
+        memory_based_workers = int(usable_memory / 0.5)
+        
+        # Get CPU count
+        cpu_count = psutil.cpu_count(logical=False) or psutil.cpu_count() or 4
+        
+        # Calculate optimal - minimum of memory and CPU based limits
+        optimal = min(memory_based_workers, cpu_count)
+        
+        # Clamp between 2 and 15
+        return max(2, min(15, optimal))
+    except Exception:
+        # Fallback to safe default
+        return 4
+
+
+class PlaywrightDriver:
+    """
+    Manages Playwright browser instances with stealth settings.
+    Designed for concurrent execution of multiple login flows.
+    """
+    
+    def __init__(self, headless: bool = True):
+        self.headless = headless
+        self._playwright: Playwright = None
+        self._browser: Browser = None
+        
+    async def __aenter__(self):
+        await self.start()
+        return self
+        
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.stop()
+        
+    async def start(self):
+        """Initialize Playwright and launch browser."""
+        self._playwright = await async_playwright().start()
+        
+        # Launch Chromium with stealth settings
+        self._browser = await self._playwright.chromium.launch(
+            headless=self.headless,
+            args=[
+                '--disable-blink-features=AutomationControlled',
+                '--disable-dev-shm-usage',
+                '--no-sandbox',
+                '--disable-web-security',
+                '--disable-features=IsolateOrigins,site-per-process',
+                '--disable-infobars',
+                '--window-size=1920,1080',
+            ]
+        )
+        
+    async def stop(self):
+        """Clean up browser and Playwright instances."""
+        if self._browser:
+            await self._browser.close()
+        if self._playwright:
+            await self._playwright.stop()
+            
+    async def new_context(self, user_agent: str = None) -> BrowserContext:
+        """
+        Create a new isolated browser context with stealth settings.
+        Each context is isolated (separate cookies, storage, etc.)
+        """
+        context_options = {
+            'viewport': {'width': 1920, 'height': 1080},
+            'ignore_https_errors': True,
+        }
+        
+        if user_agent:
+            context_options['user_agent'] = user_agent
+        else:
+            # Default realistic user agent
+            context_options['user_agent'] = (
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                'AppleWebKit/537.36 (KHTML, like Gecko) '
+                'Chrome/122.0.0.0 Safari/537.36'
+            )
+            
+        context = await self._browser.new_context(**context_options)
+        
+        # Apply stealth scripts
+        await self._apply_stealth(context)
+        
+        return context
+    
+    async def _apply_stealth(self, context: BrowserContext):
+        """Apply stealth modifications to avoid detection."""
+        # Remove webdriver property
+        await context.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined
+            });
+        """)
+        
+        # Mask automation indicators
+        await context.add_init_script("""
+            // Overwrite the 'plugins' property to use a custom getter
+            Object.defineProperty(navigator, 'plugins', {
+                get: () => [1, 2, 3, 4, 5]
+            });
+            
+            // Overwrite the 'languages' property
+            Object.defineProperty(navigator, 'languages', {
+                get: () => ['en-US', 'en']
+            });
+            
+            // Fix chrome property
+            window.chrome = {
+                runtime: {}
+            };
+            
+            // Fix permissions
+            const originalQuery = window.navigator.permissions.query;
+            window.navigator.permissions.query = (parameters) => (
+                parameters.name === 'notifications' ?
+                    Promise.resolve({ state: Notification.permission }) :
+                    originalQuery(parameters)
+            );
+        """)
+
+
+async def wait_and_fill(page: Page, selector: str, value: str, timeout: int = 10000):
+    """Wait for element and fill with value."""
+    await page.wait_for_selector(selector, timeout=timeout)
+    await page.fill(selector, value)
+
+
+async def wait_and_click(page: Page, selector: str, timeout: int = 10000):
+    """Wait for element and click."""
+    await page.wait_for_selector(selector, timeout=timeout)
+    await page.click(selector)
+
+
+async def wait_for_text(page: Page, text: str, timeout: int = 15000) -> bool:
+    """Wait for specific text to appear on page."""
+    try:
+        await page.wait_for_selector(f'text="{text}"', timeout=timeout)
+        return True
+    except Exception:
+        return False
+
+
+async def check_page_contains(page: Page, text: str) -> bool:
+    """Check if page contains specific text."""
+    content = await page.content()
+    return text in content
