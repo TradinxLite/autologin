@@ -129,7 +129,7 @@ class PlaywrightDriver:
         Each context is isolated (separate cookies, storage, etc.)
         """
         context_options = {
-            'viewport': {'width': 1920, 'height': 1080},
+            'viewport': None,
             'ignore_https_errors': True,
         }
         
