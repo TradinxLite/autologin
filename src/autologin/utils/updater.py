@@ -25,7 +25,7 @@ GITHUB_REPO = "TradinxLite/autologin"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 
 # Hardcoded version as fallback (updated during build)
-APP_VERSION = "1.0.1"
+APP_VERSION = "1.0.2"
 
 
 def get_current_version() -> str:
