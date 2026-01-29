@@ -678,7 +678,8 @@ async def run_dhan_login(page: Page, account: dict) -> dict:
     try:
         client_id = account['client_id'].strip()
         mpin = account['mpin'].strip()
-        totp_key = account['totp_key'].strip()
+        # Remove all spaces from TOTP key to be safe
+        totp_key = account['totp_key'].strip().replace(" ", "")
         mobile_no = account.get('mobile_number', '').strip()
         
         logging.info(f"Starting Dhan login for {client_id}")
@@ -722,7 +723,7 @@ async def run_dhan_login(page: Page, account: dict) -> dict:
         
         # Step 3: Wait for TOTP page and fill TOTP
         logging.info("Dhan: Waiting for TOTP page")
-        await asyncio.sleep(3)
+        await asyncio.sleep(2)
         
         # Generate TOTP
         current_otp = _generate_totp(totp_key)
@@ -732,10 +733,13 @@ async def run_dhan_login(page: Page, account: dict) -> dict:
         totp_inputs = await page.query_selector_all('code-input input')
         if len(totp_inputs) >= 6:
             logging.info(f"Dhan: Found {len(totp_inputs)} TOTP inputs")
+            # Click first input
+            await totp_inputs[0].click()
             for i in range(6):
-                await totp_inputs[i].click()
-                await totp_inputs[i].type(current_otp[i], delay=30)
-                await asyncio.sleep(0.1)
+                # Just type, don't click each unless needed, to work with auto-focus behavior
+                # But to be safe, if we click each, it forces focus.
+                # Let's type FAST.
+                await totp_inputs[i].type(current_otp[i])
         else:
             logging.warning(f"Dhan: Only found {len(totp_inputs)} TOTP inputs, trying XPath")
             # Fallback to exact XPath
@@ -743,14 +747,19 @@ async def run_dhan_login(page: Page, account: dict) -> dict:
                 xpath = f'/html/body/app-root/div[1]/app-login/div/div[2]/div/div[2]/div[1]/div/div[2]/div/div[2]/div[1]/code-input/span[{i+1}]/input'
                 field = await page.wait_for_selector(f'xpath={xpath}', timeout=10000)
                 await field.click()
-                await field.type(current_otp[i], delay=30)
+                await field.type(current_otp[i])
         
         # Step 4: TOTP auto-submits, wait for PIN page
         logging.info("Dhan: Waiting for PIN page after TOTP submission")
-        await asyncio.sleep(3)
+        await asyncio.sleep(2)
+        
+        # Check for Invalid TOTP error immediately
+        error_msg = await page.query_selector('text="Invalid Totp entered" >> visible=true')
+        if error_msg:
+             logging.error("Dhan: Invalid TOTP detected")
+             return {"status": False, "message": "Invalid TOTP. Check system clock or secret key."}
         
         # Check if we're on PIN page or back on mobile (error)
-        # Look for PIN label or "Enter PIN" text
         try:
             # Wait for PIN-related text to appear
             await page.wait_for_selector(
@@ -759,11 +768,15 @@ async def run_dhan_login(page: Page, account: dict) -> dict:
             )
             logging.info("Dhan: PIN page detected")
         except Exception:
-            # Check if we're back on mobile page (error indicator)
+            # Check if we're back on mobile page (generic error indicator)
             mobile_visible = await page.query_selector('input[type="tel"]:visible, input[placeholder*="mobile" i]:visible')
             if mobile_visible:
-                logging.error("Dhan: Returned to mobile page - TOTP may be invalid")
                 return {"status": False, "message": "TOTP verification failed - returned to mobile page"}
+                
+            # Check for error toast again just in case
+            if await page.query_selector('text="Invalid Totp"'):
+                return {"status": False, "message": "Invalid TOTP"}
+                
             logging.warning("Dhan: Could not detect PIN page indicator, continuing anyway")
         
         # Step 5: Fill PIN
@@ -774,10 +787,10 @@ async def run_dhan_login(page: Page, account: dict) -> dict:
         pin_inputs = await page.query_selector_all('code-input input')
         
         if len(pin_inputs) >= len(mpin):
+            # Click first pin input
+            await pin_inputs[0].click()
             for i in range(len(mpin)):
-                await pin_inputs[i].click()
-                await pin_inputs[i].type(mpin[i], delay=30)
-                await asyncio.sleep(0.1)
+                await pin_inputs[i].type(mpin[i])
             logging.info("Dhan: PIN entered successfully")
         else:
             logging.warning(f"Dhan: Only found {len(pin_inputs)} PIN inputs, trying XPath options")
@@ -794,7 +807,7 @@ async def run_dhan_login(page: Page, account: dict) -> dict:
                         if i < len(mpin):
                             field = await page.wait_for_selector(f'xpath={xpath}', timeout=5000)
                             await field.click()
-                            await field.type(mpin[i], delay=30)
+                            await field.type(mpin[i])
                     pin_filled = True
                     break
                 except Exception:
@@ -808,13 +821,8 @@ async def run_dhan_login(page: Page, account: dict) -> dict:
         await asyncio.sleep(10)
         
         if await check_page_contains(page, "Account Saved!"):
-            logging.info("Dhan: Login successful!")
             return {"status": True, "message": "Account Saved!"}
         else:
-            # Check for error messages
-            page_content = await page.content()
-            if "invalid" in page_content.lower() or "error" in page_content.lower():
-                return {"status": False, "message": "Login failed - invalid credentials or error on page"}
             return {"status": False, "message": "Account not saved - did not reach success page"}
             
     except Exception as e:
