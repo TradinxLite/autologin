@@ -16,6 +16,17 @@ def get_data_dir():
     return Path(user_data_dir(appname="AutoLogin")) / "data"
 
 
+def get_playwright_browsers_path() -> Path:
+    """Get the path where Playwright browsers are installed."""
+    return Path(user_data_dir(appname="AutoLogin")) / "playwright-browsers"
+
+
+def setup_playwright_environment():
+    """Set up environment variables for Playwright."""
+    browsers_path = get_playwright_browsers_path()
+    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(browsers_path)
+
+
 def detect_optimal_concurrency() -> int:
     """
     Detect optimal concurrency based on system resources.
@@ -71,6 +82,9 @@ class PlaywrightDriver:
         
     async def start(self):
         """Initialize Playwright and launch browser."""
+        # Ensure Playwright knows where to find browsers
+        setup_playwright_environment()
+        
         self._playwright = await async_playwright().start()
         
         # Launch Chromium with stealth settings
