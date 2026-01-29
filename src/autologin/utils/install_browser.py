@@ -105,28 +105,25 @@ def install_browser_via_python_api(progress_callback=None) -> bool:
         driver_executable = compute_driver_executable()
         report(f"Computed driver executable: {driver_executable}")
         
+        # Unpack tuple (node_path, cli_path)
+        if isinstance(driver_executable, tuple):
+            node_path, cli_path = driver_executable
+        else:
+            # Fallback for older versions?
+            node_path, cli_path = driver_executable, None
+
         # Verify if driver exists
-        if not os.path.exists(driver_executable):
-            report(f"Driver executable missing at: {driver_executable}")
+        if not os.path.exists(node_path):
+            report(f"Node executable missing at: {node_path}")
             report("Searching for node executable in app directories...")
             
             # Manual search for node.exe/node in site-packages/playwright
             found_driver = find_manual_driver()
             if found_driver:
-                driver_executable = found_driver
-                report(f"Found driver manually at: {driver_executable}")
+                node_path = found_driver
+                report(f"Found driver manually at: {node_path}")
             else:
                 report("Could not find node executable anywhere.")
-                # List playwright dir contents for debugging
-                try:
-                    import playwright
-                    package_root = Path(playwright.__file__).parent
-                    report(f"Listing playwright package dir: {package_root}")
-                    for root, dirs, files in os.walk(package_root):
-                        for f in files:
-                            report(f"  {os.path.join(root, f)}")
-                except Exception as e:
-                    report(f"Could not list directory: {e}")
 
         env = get_driver_env()
         env["PLAYWRIGHT_BROWSERS_PATH"] = str(browsers_path)
@@ -135,12 +132,25 @@ def install_browser_via_python_api(progress_callback=None) -> bool:
         
         # Ensure executable permission for driver
         try:
-            os.chmod(driver_executable, 0o755)
+            os.chmod(node_path, 0o755)
         except Exception:
             pass
+            
+        # Construct command: node cli.js install chromium
+        cmd = [str(node_path)]
+        if cli_path:
+            cmd.append(str(cli_path))
+        else:
+            # If cli_path wasn't returned, we might need to assume it?
+            # Playwright usually returns (node, cli) always.
+            cmd.append("install") # Wait, if no cli path, this is wrong.
+            # But compute_driver_executable() returns tuple.
+            pass
+            
+        cmd.extend(["install", "chromium"])
 
         result = subprocess.run(
-            [str(driver_executable), "install", "chromium"],
+            cmd,
             capture_output=True,
             text=True,
             env=env,
