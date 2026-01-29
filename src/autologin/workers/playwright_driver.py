@@ -88,18 +88,30 @@ class PlaywrightDriver:
         self._playwright = await async_playwright().start()
         
         # Launch Chromium with stealth settings
-        self._browser = await self._playwright.chromium.launch(
-            headless=self.headless,
-            args=[
-                '--disable-blink-features=AutomationControlled',
-                '--disable-dev-shm-usage',
-                '--no-sandbox',
-                '--disable-web-security',
-                '--disable-features=IsolateOrigins,site-per-process',
-                '--disable-infobars',
-                '--window-size=1920,1080',
-            ]
-        )
+        try:
+            # Diagnostic: verify browser path
+            executable_path = self._playwright.chromium.executable_path
+            logging.info(f"Attempting to launch browser from: {executable_path}")
+            
+            if not os.path.exists(executable_path):
+                logging.error(f"Browser executable not found at: {executable_path}")
+                # Try to force re-install?
+            
+            self._browser = await self._playwright.chromium.launch(
+                headless=self.headless,
+                args=[
+                    '--disable-blink-features=AutomationControlled',
+                    '--disable-dev-shm-usage',
+                    '--no-sandbox',
+                    '--disable-web-security',
+                    '--disable-features=IsolateOrigins,site-per-process',
+                    '--disable-infobars',
+                    '--window-size=1920,1080',
+                ]
+            )
+        except Exception as e:
+            logging.error(f"Failed to launch browser: {e}")
+            raise
         
     async def stop(self):
         """Clean up browser and Playwright instances."""

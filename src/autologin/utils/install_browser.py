@@ -71,8 +71,13 @@ def find_playwright_cli() -> list:
             if p.exists():
                 return [str(p)]
     
-    # Method 4: Use python -m playwright (fallback, may not work in all packaged scenarios)
-    return [sys.executable, "-m", "playwright"]
+    # Method 4: Use python -m playwright (fallback)
+    # WARNING: Do NOT use this if running as a packaged app (sys.executable is the app itself)
+    if not is_packaged_app():
+        return [sys.executable, "-m", "playwright"]
+        
+    logging.warning("Cannot use python -m playwright in packaged app: no python executable available")
+    return []
 
 
 def install_browser_via_python_api(progress_callback=None) -> bool:
@@ -123,7 +128,26 @@ def install_browser_via_python_api(progress_callback=None) -> bool:
         return False
     except Exception as e:
         logging.warning(f"Direct installation failed: {e}")
+        # Check if it was the specific 'node' missing error
+        str_e = str(e)
+        if "No such file" in str_e and "driver" in str_e:
+             logging.error("CRITICAL: Playwright driver/node executable is missing. "
+                           "The application packaging may be incomplete.")
         return False
+
+
+def is_packaged_app() -> bool:
+    """Check if running as a packaged/frozen application."""
+    if getattr(sys, 'frozen', False):
+        return True
+    
+    # Briefcase specific check (sys.executable points to the app bundle, not python)
+    # Checking if executable name looks like python
+    exe_name = Path(sys.executable).name.lower()
+    if 'python' not in exe_name and exe_name != 'jb_python':
+        return True
+        
+    return False
 
 
 def install_browser_via_cli(progress_callback=None) -> bool:
@@ -142,7 +166,12 @@ def install_browser_via_cli(progress_callback=None) -> bool:
     env = os.environ.copy()
     env["PLAYWRIGHT_BROWSERS_PATH"] = str(browsers_path)
     
-    cmd = find_playwright_cli() + ["install", "chromium"]
+    cmd = find_playwright_cli()
+    if not cmd:
+        report("Could not find Playwright CLI and cannot run python -m playwright.")
+        return False
+        
+    cmd = cmd + ["install", "chromium"]
     report(f"Running: {' '.join(cmd)}")
     
     try:
