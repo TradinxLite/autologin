@@ -168,6 +168,21 @@ def install_browser_via_python_api(progress_callback=None) -> bool:
             logging.warning(f"Driver install failed: {result.stderr}")
             return False
 
+
+            
+    except ImportError as e:
+        logging.warning(f"Could not import playwright internals: {e}")
+        return False
+    except Exception as e:
+        logging.warning(f"Direct installation failed: {e}")
+        # Check if it was the specific 'node' missing error
+        str_e = str(e)
+        if "No such file" in str_e and "driver" in str_e:
+             logging.error("CRITICAL: Playwright driver/node executable is missing. "
+                           "The application packaging may be incomplete.")
+        return False
+
+
 def find_manual_driver():
     """Search for the playwright node driver in common locations."""
     node_name = "node.exe" if sys.platform == "win32" else "node"
@@ -177,7 +192,7 @@ def find_manual_driver():
         import playwright
         package_root = Path(playwright.__file__).parent
         
-        # Standard location: driver/package/node_modules/playwright-core/.local-browsers/ (no that's browsers)
+        # Standard location: driver/package/node_modules/playwright-core/.local-browsers/
         # Standard location: driver/node
         driver_dir = package_root / "driver"
         possible_path = driver_dir / node_name
@@ -205,18 +220,6 @@ def find_manual_driver():
         pass
         
     return None
-            
-    except ImportError as e:
-        logging.warning(f"Could not import playwright internals: {e}")
-        return False
-    except Exception as e:
-        logging.warning(f"Direct installation failed: {e}")
-        # Check if it was the specific 'node' missing error
-        str_e = str(e)
-        if "No such file" in str_e and "driver" in str_e:
-             logging.error("CRITICAL: Playwright driver/node executable is missing. "
-                           "The application packaging may be incomplete.")
-        return False
 
 
 def is_packaged_app() -> bool:
