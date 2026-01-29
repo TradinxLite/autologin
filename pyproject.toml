@@ -2,8 +2,8 @@
 [tool.briefcase]
 project_name = "AutoLogin"
 bundle = "trade.autologin"
-version = "0.0.1"
-url = ""
+version = "1.0.0"
+url = "https://github.com/TradinxLite/autologin"
 license.file = "LICENSE"
 author = ""
 author_email = ""
@@ -30,6 +30,7 @@ requires = [
     "requests",
     "playwright>=1.40.0",
     "psutil>=5.9.0",
+    "packaging>=21.0",
 ]
 test_requires = [
     "pytest",

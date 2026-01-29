@@ -39,6 +39,12 @@ from autologin.dialogs.how_to_add_fivepaisa import HowToAddFivePaisaDialog
 from autologin.utils.alert_box import fail_box_alert, ok_box_alert
 from autologin.utils.table_model import pandasModel
 from autologin.utils.install_browser import ensure_browser_installed
+from autologin.utils.updater import (
+    get_current_version, check_for_updates, UpdateChecker
+)
+from autologin.dialogs.update_dialog import (
+    UpdateAvailableDialog, UpdateProgressDialog, NoUpdateDialog
+)
 from autologin.workers.executor_worker import ExecutorWorker
 from autologin.workers.playwright_driver import detect_optimal_concurrency
 from datetime import datetime
@@ -104,6 +110,9 @@ class AutoLogin(QMainWindow):
         self.table_functions()
         self.load_user_preferences()
         self.setup_menu_bar()
+        
+        # Check for updates after UI is ready
+        QTimer.singleShot(2000, self.check_for_updates_on_startup)
 
     def get_preferences_file(self):
         """Get the path to the preferences file"""
@@ -173,6 +182,12 @@ class AutoLogin(QMainWindow):
 
         # Help menu
         help_menu = menubar.addMenu('&Help')
+
+        check_updates_action = help_menu.addAction('Check for Updates...')
+        check_updates_action.setStatusTip('Check for application updates')
+        check_updates_action.triggered.connect(self.check_for_updates_manual)
+        
+        help_menu.addSeparator()
 
         about_action = help_menu.addAction('About')
         about_action.setStatusTip('About this application')
@@ -961,6 +976,81 @@ class AutoLogin(QMainWindow):
             json.dump(accounts, f)
         self.refresh_accounts_in_table()
         ok_box_alert("Success", f"{client_id} updated successfully!")
+
+    def check_for_updates_on_startup(self):
+        """Check for updates silently on startup."""
+        def on_update_available(new_version, download_url, release_notes):
+            # Use QTimer to run dialog on main thread
+            QTimer.singleShot(0, lambda: self._show_update_dialog(
+                new_version, download_url, release_notes
+            ))
+        
+        self.update_checker = UpdateChecker(
+            on_update_available=on_update_available,
+            on_no_update=None,  # Silent on startup
+            on_error=None  # Silent on startup
+        )
+        self.update_checker.check_async()
+    
+    def check_for_updates_manual(self):
+        """Check for updates with UI feedback (triggered from menu)."""
+        self.statusBar().showMessage("Checking for updates...", 3000)
+        
+        def on_update_available(new_version, download_url, release_notes):
+            QTimer.singleShot(0, lambda: self._show_update_dialog(
+                new_version, download_url, release_notes
+            ))
+        
+        def on_no_update():
+            QTimer.singleShot(0, lambda: self._show_no_update_dialog())
+        
+        def on_error(error):
+            QTimer.singleShot(0, lambda: fail_box_alert(
+                "Update Check Failed", 
+                f"Could not check for updates:\n{error}"
+            ))
+        
+        self.update_checker = UpdateChecker(
+            on_update_available=on_update_available,
+            on_no_update=on_no_update,
+            on_error=on_error
+        )
+        self.update_checker.check_async()
+    
+    def _show_update_dialog(self, new_version, download_url, release_notes):
+        """Show the update available dialog."""
+        current_version = get_current_version()
+        
+        dialog = UpdateAvailableDialog(
+            self,
+            current_version,
+            new_version,
+            release_notes or ""
+        )
+        
+        if dialog.exec_() and download_url:
+            # User wants to download
+            self._start_update_download(download_url)
+    
+    def _show_no_update_dialog(self):
+        """Show dialog indicating no update is available."""
+        current_version = get_current_version()
+        dialog = NoUpdateDialog(self, current_version)
+        dialog.exec_()
+    
+    def _start_update_download(self, download_url):
+        """Start downloading the update."""
+        progress_dialog = UpdateProgressDialog(self, download_url)
+        progress_dialog.start_download()
+        
+        if progress_dialog.exec_():
+            # Update was applied, close the app
+            QMessageBox.information(
+                self,
+                "Restart Required",
+                "Please restart the application to complete the update."
+            )
+            self.close()
 
 def main():
     # Linux desktop environments use an app's .desktop file to integrate the app
