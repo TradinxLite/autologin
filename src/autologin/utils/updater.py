@@ -24,13 +24,14 @@ except ImportError:
     HAS_PACKAGING = False
 
 logger = logging.getLogger(__name__)
+logger.info("Initializing Updater v1.0.17")
 
 # Configuration
 GITHUB_REPO = "TradinxLite/autologin"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 
 # Hardcoded version as fallback (updated during build)
-APP_VERSION = "1.0.16"
+APP_VERSION = "1.0.17"
 
 
 def get_current_version() -> str:
