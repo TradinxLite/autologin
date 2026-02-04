@@ -108,7 +108,7 @@ class PlaywrightDriver:
                     '--disable-web-security',
                     '--disable-features=IsolateOrigins,site-per-process',
                     '--disable-infobars',
-                    '--window-size=1920,1080',
+                    '--start-maximized',
                     '--disable-gpu',
                     '--disable-software-rasterizer',
                     '--exclude-switches=enable-automation',

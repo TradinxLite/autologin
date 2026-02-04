@@ -735,11 +735,14 @@ async def run_dhan_login(page: Page, account: dict) -> dict:
             logging.info(f"Dhan: Found {len(totp_inputs)} TOTP inputs")
             # Click first input
             await totp_inputs[0].click()
+            # Type TOTP digits
             for i in range(6):
-                # Just type, don't click each unless needed, to work with auto-focus behavior
-                # But to be safe, if we click each, it forces focus.
-                # Let's type FAST.
-                await totp_inputs[i].type(current_otp[i])
+                await totp_inputs[i].click()
+                await totp_inputs[i].fill(current_otp[i])
+                await asyncio.sleep(0.1)  # Small delay
+            
+            # Press Enter on the last input just in case
+            await totp_inputs[-1].press("Enter")
         else:
             logging.warning(f"Dhan: Only found {len(totp_inputs)} TOTP inputs, trying XPath")
             # Fallback to exact XPath
@@ -747,7 +750,23 @@ async def run_dhan_login(page: Page, account: dict) -> dict:
                 xpath = f'/html/body/app-root/div[1]/app-login/div/div[2]/div/div[2]/div[1]/div/div[2]/div/div[2]/div[1]/code-input/span[{i+1}]/input'
                 field = await page.wait_for_selector(f'xpath={xpath}', timeout=10000)
                 await field.click()
-                await field.type(current_otp[i])
+                await field.fill(current_otp[i])
+                if i == 5:
+                    await field.press("Enter")
+
+        # Step 4: Check for Proceed button (some flows have it)
+        # Try waiting briefly for a button, if it appears, click it.
+        try:
+             totp_proceed_btn = await page.wait_for_selector(
+                'button:has-text("Proceed"), button:has-text("Continue"), button[type="submit"]',
+                state='visible',
+                timeout=2000
+             )
+             if totp_proceed_btn:
+                 logging.info("Dhan: Found Proceed button on TOTP page, clicking...")
+                 await totp_proceed_btn.click()
+        except Exception:
+             pass 
         
         # Step 4: TOTP auto-submits, wait for PIN page
         logging.info("Dhan: Waiting for PIN page after TOTP submission")
@@ -759,16 +778,17 @@ async def run_dhan_login(page: Page, account: dict) -> dict:
              logging.error("Dhan: Invalid TOTP detected")
              return {"status": False, "message": "Invalid TOTP. Check system clock or secret key."}
         
-        # Check if we're on PIN page or back on mobile (error)
+        # Step 5: Check for PIN detection with longer timeout
+        logging.info("Dhan: Waiting for PIN page (extended timeout)")
         try:
-            # Wait for PIN-related text to appear
+            # Wait for PIN-related text to appear - increased timeout to 30s
             await page.wait_for_selector(
                 'text="Enter PIN" >> visible=true, text="PIN" >> visible=true',
-                timeout=10000
+                timeout=30000
             )
             logging.info("Dhan: PIN page detected")
         except Exception:
-            # Check if we're back on mobile page (generic error indicator)
+             # Check if we're back on mobile page (generic error indicator)
             mobile_visible = await page.query_selector('input[type="tel"]:visible, input[placeholder*="mobile" i]:visible')
             if mobile_visible:
                 return {"status": False, "message": "TOTP verification failed - returned to mobile page"}
@@ -776,8 +796,8 @@ async def run_dhan_login(page: Page, account: dict) -> dict:
             # Check for error toast again just in case
             if await page.query_selector('text="Invalid Totp"'):
                 return {"status": False, "message": "Invalid TOTP"}
-                
-            logging.warning("Dhan: Could not detect PIN page indicator, continuing anyway")
+            
+            logging.warning("Dhan: Could not detect PIN page within timeout, attempting to continue...")
         
         # Step 5: Fill PIN
         logging.info(f"Dhan: Filling PIN (length: {len(mpin)})")
@@ -788,16 +808,26 @@ async def run_dhan_login(page: Page, account: dict) -> dict:
         
         if len(pin_inputs) >= len(mpin):
             # Click first pin input
+            # Click first pin input
             await pin_inputs[0].click()
             for i in range(len(mpin)):
-                await pin_inputs[i].type(mpin[i])
+                await pin_inputs[i].click()
+                await pin_inputs[i].fill(mpin[i])
+                await asyncio.sleep(0.1)
+            # Press enter on last digit
+            if pin_inputs:
+                await pin_inputs[-1].press("Enter")
             logging.info("Dhan: PIN entered successfully")
         else:
             logging.warning(f"Dhan: Only found {len(pin_inputs)} PIN inputs, trying XPath options")
             # Fallback to exact XPath - try different structures
             pin_xpaths_options = [
+                # User provided XPath (matches existing, but ensuring it's first)
                 [f'/html/body/app-root/div[1]/app-login/div/div[2]/div/div[2]/div[1]/div/div[2]/div/div/div[2]/code-input/span[{i+1}]/input' for i in range(6)],
+                # Alternative structure
                 [f'/html/body/app-root/div[1]/app-login/div/div[2]/div/div[2]/div[1]/div/div[2]/div/div[2]/div[2]/code-input/span[{i+1}]/input' for i in range(6)],
+                # Another potential variation
+                [f'/html/body/app-root/div[1]/app-login/div/div[2]/div/div[2]/div[1]/div/div[2]/div/div[2]/div[1]/code-input/span[{i+1}]/input' for i in range(6)],
             ]
             
             pin_filled = False
@@ -807,7 +837,10 @@ async def run_dhan_login(page: Page, account: dict) -> dict:
                         if i < len(mpin):
                             field = await page.wait_for_selector(f'xpath={xpath}', timeout=5000)
                             await field.click()
-                            await field.type(mpin[i])
+                            await field.fill(mpin[i])
+                            await asyncio.sleep(0.1)
+                            if i == len(mpin) - 1:
+                                await field.press("Enter")
                     pin_filled = True
                     break
                 except Exception:
