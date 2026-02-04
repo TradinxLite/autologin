@@ -2,7 +2,7 @@
 [tool.briefcase]
 project_name = "AutoLogin"
 bundle = "trade.autologin"
-version = "1.0.17"
+version = "1.0.18"
 url = "https://github.com/TradinxLite/autologin"
 license.file = "LICENSE"
 author = ""

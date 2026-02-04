@@ -65,6 +65,7 @@ def get_data_dir():
 
 class AutoLogin(QMainWindow):
     worker_data_sender = pyqtSignal(dict)
+    show_update_dialog_signal = pyqtSignal(str, str, str) # new_version, download_url, release_notes
 
     def __init__(self):
         super().__init__()
@@ -116,7 +117,11 @@ class AutoLogin(QMainWindow):
         self.table_functions()
         self.load_user_preferences()
         self.setup_menu_bar()
+
+        # Connect update signal
+        self.show_update_dialog_signal.connect(self._show_update_dialog)
         
+        # Check for updates after UI is ready
 
         # Check for updates after UI is ready
         QTimer.singleShot(2000, self.check_for_updates_silent)
@@ -1002,10 +1007,7 @@ class AutoLogin(QMainWindow):
         No status bar messages for 'no update' or 'checking' to avoid spamming.
         """
         def on_update_available(new_version, download_url, release_notes):
-            # Use QTimer to run dialog on main thread
-            QTimer.singleShot(0, lambda: self._show_update_dialog(
-                new_version, download_url, release_notes
-            ))
+            self.show_update_dialog_signal.emit(new_version, download_url, release_notes)
         
         # No-op for no update or error in silent mode
         def on_no_update(): pass
