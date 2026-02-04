@@ -781,12 +781,13 @@ async def run_dhan_login(page: Page, account: dict) -> dict:
         # Step 5: Check for PIN detection with longer timeout
         logging.info("Dhan: Waiting for PIN page (extended timeout)")
         try:
-            # Wait for PIN-related text to appear - increased timeout to 30s
+            # Wait for PIN-related text OR inputs to appear - increased timeout to 30s
+            # User provided XPath indicates inputs are present even if text isn't detected
             await page.wait_for_selector(
-                'text="Enter PIN" >> visible=true, text="PIN" >> visible=true',
+                'text="Enter PIN" >> visible=true, text="PIN" >> visible=true, code-input input >> visible=true',
                 timeout=30000
             )
-            logging.info("Dhan: PIN page detected")
+            logging.info("Dhan: PIN page detected (text or inputs)")
         except Exception:
              # Check if we're back on mobile page (generic error indicator)
             mobile_visible = await page.query_selector('input[type="tel"]:visible, input[placeholder*="mobile" i]:visible')
@@ -848,6 +849,22 @@ async def run_dhan_login(page: Page, account: dict) -> dict:
             
             if not pin_filled:
                 return {"status": False, "message": "Could not find PIN input fields"}
+        
+            if not pin_filled:
+                return {"status": False, "message": "Could not find PIN input fields"}
+        
+        # Click Continue/Login button after PIN
+        try:
+             continue_btn = await page.wait_for_selector(
+                'button:has-text("Continue"), button:has-text("Login")',
+                state='visible',
+                timeout=2000
+             )
+             if continue_btn:
+                 logging.info("Dhan: Found Continue button on PIN page, clicking...")
+                 await continue_btn.click()
+        except Exception:
+             logging.info("Dhan: Continue button not found or not needed")
         
         # Step 6: Wait for result
         logging.info("Dhan: Waiting for login result")
