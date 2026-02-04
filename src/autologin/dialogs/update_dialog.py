@@ -26,7 +26,7 @@ class UpdateAvailableDialog(QtWidgets.QDialog):
         self.setModal(True)
         
         layout = QtWidgets.QVBoxLayout(self)
-        layout.setSpacing(15)
+        layout.setSpacing(20)
         
         # Header with icon
         header_layout = QtWidgets.QHBoxLayout()
@@ -53,10 +53,36 @@ class UpdateAvailableDialog(QtWidgets.QDialog):
         if release_notes:
             notes_group = QtWidgets.QGroupBox("What's New")
             notes_layout = QtWidgets.QVBoxLayout(notes_group)
-            notes_text = QtWidgets.QTextEdit()
-            notes_text.setReadOnly(True)
-            notes_text.setPlainText(release_notes)
+            notes_text = QtWidgets.QTextBrowser()
+            notes_text.setOpenExternalLinks(True)
+            
+            # Force colors using Palette (more reliable than CSS on some platforms)
+            palette = notes_text.palette()
+            palette.setColor(QtGui.QPalette.Base, QtGui.QColor("#ffffff"))
+            palette.setColor(QtGui.QPalette.Text, QtGui.QColor("#000000"))
+            notes_text.setPalette(palette)
+            
+            # Basic link detection via HTML
+            # Simple conversion of URLs to links if text is plain
+            if "http" in release_notes and "<a" not in release_notes:
+                # Very basic linkify for display
+                html_notes = release_notes.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                html_notes = html_notes.replace("\n", "<br>")
+                # Highlight http links (basic regex alternative)
+                words = html_notes.split()
+                for i, word in enumerate(words):
+                    if word.startswith("http://") or word.startswith("https://"):
+                        words[i] = f'<a href="{word}">{word}</a>'
+                notes_text.setHtml(" ".join(words))
+            else:
+                notes_text.setPlainText(release_notes)
+                
             notes_text.setMaximumHeight(200)
+            notes_text.setStyleSheet(
+                "QTextBrowser { background-color: #ffffff; color: #000000; "
+                "border: 1px solid #d0d0d0; border-radius: 4px; padding: 10px; "
+                "font-size: 12px; font-family: sans-serif; }"
+            )
             notes_layout.addWidget(notes_text)
             layout.addWidget(notes_group)
         
@@ -72,8 +98,14 @@ class UpdateAvailableDialog(QtWidgets.QDialog):
         
         # Buttons
         button_layout = QtWidgets.QHBoxLayout()
+        button_layout.setSpacing(12)
         
         self.later_btn = QtWidgets.QPushButton("Remind Me Later")
+        self.later_btn.setStyleSheet(
+            "QPushButton { background-color: #f5f5f7; color: #333; padding: 10px 20px; "
+            "border: 1px solid #d1d1d6; border-radius: 6px; font-size: 13px; }"
+            "QPushButton:hover { background-color: #e5e5ea; }"
+        )
         self.later_btn.clicked.connect(self.reject)
         
         if download_url:
@@ -81,9 +113,9 @@ class UpdateAvailableDialog(QtWidgets.QDialog):
             self.update_btn.setDefault(True)
             self.update_btn.clicked.connect(self.accept)
             self.update_btn.setStyleSheet(
-                "QPushButton { background-color: #4CAF50; color: white; padding: 10px 20px; "
-                "border-radius: 5px; font-weight: bold; font-size: 14px; }"
-                "QPushButton:hover { background-color: #45a049; }"
+                "QPushButton { background-color: #34C759; color: white; padding: 10px 20px; "
+                "border: none; border-radius: 6px; font-weight: 600; font-size: 14px; }"
+                "QPushButton:hover { background-color: #248A3D; }"
             )
         else:
             self.update_btn = QtWidgets.QPushButton("Open Downloads Page")
