@@ -115,6 +115,8 @@ class AutoLogin(QMainWindow):
         
         self.refresh_accounts_in_table()
         self.table_functions()
+        # Enforce single selection mode
+        self.accounts_table.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
         self.load_user_preferences()
         self.setup_menu_bar()
 
@@ -350,9 +352,29 @@ class AutoLogin(QMainWindow):
 
         if len(selected_rows) >= 0:
             for selected_row in selected_rows:
-                account_data = self.accounts_df.iloc[selected_row.row()]
-                broker = account_data['broker']
-                client_id = account_data['client_id']
+                # Use data directly from the model to ensure sorted order is respected
+                account_data = self.accounts_table.model()._data.iloc[selected_row.row()]
+                
+                # Reverse map broker
+                reverse_broker_map = {
+                    "Angel One": "angel_one",
+                    "Zerodha": "zerodha",
+                    "Upstox": "upstox",
+                    "Sharekhan": "sharekhan",
+                    "Motilal Oswal": "motilal",
+                    "Nuvama": "nuvama",
+                    "KotakNeo": "kotakneo",
+                    "Jainam Lite": "jainamlite",
+                    "Fyers": "fyers",
+                    "5Paisa": "fivepaisa",
+                    "Dhan": "dhan",
+                    "Firstock": "firstock",
+                    "Pocketful": "pocketful",
+                }
+                display_broker = account_data['Broker']
+                broker = reverse_broker_map.get(display_broker, display_broker.lower().replace(" ", "_"))
+                
+                client_id = account_data['Client ID']
 
                 file_available = os.path.exists(f"{self.data_dir}/accounts.json")
                 if not file_available:
@@ -930,47 +952,123 @@ class AutoLogin(QMainWindow):
             progress.close()
 
     def modify_selected_account(self):
-        selected_row = self.accounts_table.currentIndex().row()
-        if selected_row == -1:
-            fail_box_alert("Error", "Select an account to modify")
-            return
+        print("DEBUG: modify_selected_account called")
+        try:
+            selected_row = self.accounts_table.currentIndex().row()
+            print(f"DEBUG: Selected row index: {selected_row}")
+            if selected_row == -1:
+                fail_box_alert("Error", "Select an account to modify")
+                return
 
-        account_data = self.accounts_df.iloc[selected_row]
-        broker = account_data["broker"].lower().replace(" ", "_")
-        client_id = account_data["client_id"]
+            # Use data directly from the model to ensure sorted order is respected
+            model = self.accounts_table.model()
+            if not model:
+                print("DEBUG: No model found on table!")
+                return
+                
+            print(f"DEBUG: Fetching data for row {selected_row} from model data shape {model._data.shape}")
+            account_data = model._data.iloc[selected_row]
+            print(f"DEBUG: Account data fetched: {account_data}")
+            
+            # Helper to reverse map broker display name to internal ID
+            reverse_broker_map = {
+                "Angel One": "angel_one",
+                "Zerodha": "zerodha",
+                "Upstox": "upstox",
+                "Sharekhan": "sharekhan",
+                "Motilal Oswal": "motilal",
+                "Nuvama": "nuvama",
+                "KotakNeo": "kotakneo",
+                "Jainam Lite": "jainamlite",
+                "Fyers": "fyers",
+                "5Paisa": "fivepaisa",
+                "Dhan": "dhan",
+                "Firstock": "firstock",
+                "Pocketful": "pocketful",
+            }
+            
+            display_broker = account_data["Broker"]
+            broker = reverse_broker_map.get(display_broker)
+            if not broker:
+                 # Fallback/Edge case: try lowercased with underscore if not found in map
+                 broker = display_broker.lower().replace(" ", "_")
+                 
+            client_id = account_data["Client ID"]
+            print(f"DEBUG: Display Broker: {display_broker} -> Internal: {broker}, Client ID: {client_id}")
 
-        broker_dialog_map = {
-            "angel_one": AddAngelOneAccountDialog,
-            "zerodha": AddZerodhaAccountDialog,
-            "upstox": AddUpstoxAccountDialog,
-            "sharekhan": AddSharekhanAccountDialog,
-            "nuvama": AddNuvamaAccountDialog,
-            "motilal": AddMotilalOswalAccountDialog,
-            "jainamlite": AddJainamLiteAccountDialog,
-            "kotakneo": AddKotakNeoAccountDialog,
-            "fyers" : AddFyersAccountDialog,
-            "fivepaisa" : AddFivePaisaAccountDialog,
-            "dhan" : AddDhanAccountDialog,
-            "firstock" : AddFirstockAccountDialog,
-            "pocketful" : AddPocketfulAccountDialog,
-        }
+            broker_dialog_map = {
+                "angel_one": AddAngelOneAccountDialog,
+                "zerodha": AddZerodhaAccountDialog,
+                "upstox": AddUpstoxAccountDialog,
+                "sharekhan": AddSharekhanAccountDialog,
+                "nuvama": AddNuvamaAccountDialog,
+                "motilal": AddMotilalOswalAccountDialog,
+                "jainamlite": AddJainamLiteAccountDialog,
+                "kotakneo": AddKotakNeoAccountDialog,
+                "fyers" : AddFyersAccountDialog,
+                "fivepaisa" : AddFivePaisaAccountDialog,
+                "dhan" : AddDhanAccountDialog,
+                "firstock" : AddFirstockAccountDialog,
+                "pocketful" : AddPocketfulAccountDialog,
+            }
 
-        if broker not in broker_dialog_map:
-            fail_box_alert("Error", "Unsupported broker")
-            return
+            if broker not in broker_dialog_map:
+                print(f"DEBUG: Unsupported broker: {broker}")
+                fail_box_alert("Error", "Unsupported broker")
+                return
 
-        def noop(): pass
+            def noop(): pass
 
-        if broker == "pocketful":
-            dialog = broker_dialog_map[broker]()
-        else:
-            dialog = broker_dialog_map[broker](noop)
-        dialog.set_inputs(account_data.to_dict())
+            print(f"DEBUG: Instantiating dialog for {broker}")
+            if broker == "pocketful":
+                dialog = broker_dialog_map[broker]()
+            else:
+                dialog = broker_dialog_map[broker](noop)
+            
+            print("DEBUG: Setting inputs on dialog")
+            # Map Title Case display keys back to snake_case for the dialog
+            data_map = {
+                "Client ID": "client_id",
+                "Password": "password",
+                "MPIN": "mpin",
+                "TOTP Key": "totp_key",
+                "API Key": "api_key",
+                "API Secret": "api_secret",
+                "Mobile Number": "mobile_number",
+                "Added On": "added_on",
+                "Last Login": "last_login",
+                "Status": "status",
+                "pin": "pin" # Legacy/fallback
+            }
+            
+            raw_data = account_data.to_dict()
+            mapped_data = {}
+            for key, value in raw_data.items():
+                if key in data_map:
+                    mapped_data[data_map[key]] = value
+                else:
+                    mapped_data[key.lower().replace(" ", "_")] = value
+            
+            # Special handling for PIN/MPIN consolidation
+            if "pin" in mapped_data and mapped_data["pin"] and not mapped_data.get("mpin"):
+                 mapped_data["mpin"] = mapped_data["pin"]
 
-        dialog.show()
-        if dialog.exec_():
-            updated_data = dialog.get_inputs()
-            self.update_account_in_json(broker, client_id, updated_data)
+            print(f"DEBUG: Mapped data for dialog: {mapped_data}")
+            dialog.set_inputs(mapped_data)
+
+            print("DEBUG: Showing dialog")
+            dialog.show()
+            if dialog.exec_():
+                print("DEBUG: Dialog accepted")
+                updated_data = dialog.get_inputs()
+                self.update_account_in_json(broker, client_id, updated_data)
+            else:
+                print("DEBUG: Dialog execution finished (rejected or closed)")
+        except Exception as e:
+            print(f"DEBUG: Exception in modify_selected_account: {e}")
+            import traceback
+            traceback.print_exc()
+            fail_box_alert("Crash Error", f"An error occurred: {e}")
 
     def update_account_in_json(self, broker, client_id, new_data):
         file_path = self.data_dir / "accounts.json"

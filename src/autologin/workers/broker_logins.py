@@ -825,6 +825,7 @@ async def run_pocketful_login(page: Page, account: dict) -> dict:
     try:
         client_id = account['client_id'].strip()
         password = account['password'].strip()
+        pin = account.get('mpin', '').strip() # Use MPIN field for Pocketful PIN
         
         encoded_account = client_id.encode("ascii")
         base64_account = base64.b64encode(encoded_account)
@@ -842,6 +843,43 @@ async def run_pocketful_login(page: Page, account: dict) -> dict:
         
         # Click submit
         await page.click('button[type="submit"]')
+        
+        if await check_page_contains(page, "Account Saved!"):
+            return {"status": True, "message": "Account Saved!"}
+            
+        # Handle PIN (MPIN) if provided
+        pin = account.get('mpin', '').strip()
+        if pin:
+            print(f"DEBUG: Handling PIN input with MPIN: {pin}")
+            try:
+                await asyncio.sleep(3)
+                # Try to find PIN input using common attributes
+                # Since we don't know the exact selector, we try a few likely candidates
+                pin_field = None
+                selectors = [
+                    'input[placeholder*="Pin"]', 
+                    'input[placeholder*="PIN"]',
+                    'input[type="password"]'
+                ]
+                
+                for selector in selectors:
+                    try:
+                        if await page.is_visible(selector):
+                            pin_field = selector
+                            break
+                    except:
+                        continue
+                        
+                if pin_field:
+                    await page.fill(pin_field, pin)
+                    # Click submit again if a button is visible
+                    if await page.is_visible('button[type="submit"]'):
+                        await page.click('button[type="submit"]')
+                else:
+                    logging.warning("Pocketful PIN provided but no PIN field found.")
+                    
+            except Exception as e:
+                logging.warning(f"Pocketful PIN step error: {e}")
         
         await asyncio.sleep(10)
         
