@@ -850,7 +850,6 @@ async def run_pocketful_login(page: Page, account: dict) -> dict:
         # Handle PIN (MPIN) if provided
         pin = account.get('mpin', '').strip()
         if pin:
-            print(f"DEBUG: Handling PIN input with MPIN: {pin}")
             try:
                 await asyncio.sleep(3)
                 # Try to find PIN input using common attributes

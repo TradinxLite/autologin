@@ -952,10 +952,8 @@ class AutoLogin(QMainWindow):
             progress.close()
 
     def modify_selected_account(self):
-        print("DEBUG: modify_selected_account called")
         try:
             selected_row = self.accounts_table.currentIndex().row()
-            print(f"DEBUG: Selected row index: {selected_row}")
             if selected_row == -1:
                 fail_box_alert("Error", "Select an account to modify")
                 return
@@ -963,12 +961,9 @@ class AutoLogin(QMainWindow):
             # Use data directly from the model to ensure sorted order is respected
             model = self.accounts_table.model()
             if not model:
-                print("DEBUG: No model found on table!")
                 return
                 
-            print(f"DEBUG: Fetching data for row {selected_row} from model data shape {model._data.shape}")
             account_data = model._data.iloc[selected_row]
-            print(f"DEBUG: Account data fetched: {account_data}")
             
             # Helper to reverse map broker display name to internal ID
             reverse_broker_map = {
@@ -994,7 +989,6 @@ class AutoLogin(QMainWindow):
                  broker = display_broker.lower().replace(" ", "_")
                  
             client_id = account_data["Client ID"]
-            print(f"DEBUG: Display Broker: {display_broker} -> Internal: {broker}, Client ID: {client_id}")
 
             broker_dialog_map = {
                 "angel_one": AddAngelOneAccountDialog,
@@ -1013,19 +1007,16 @@ class AutoLogin(QMainWindow):
             }
 
             if broker not in broker_dialog_map:
-                print(f"DEBUG: Unsupported broker: {broker}")
                 fail_box_alert("Error", "Unsupported broker")
                 return
 
             def noop(): pass
 
-            print(f"DEBUG: Instantiating dialog for {broker}")
             if broker == "pocketful":
                 dialog = broker_dialog_map[broker]()
             else:
                 dialog = broker_dialog_map[broker](noop)
             
-            print("DEBUG: Setting inputs on dialog")
             # Map Title Case display keys back to snake_case for the dialog
             data_map = {
                 "Client ID": "client_id",
@@ -1053,19 +1044,13 @@ class AutoLogin(QMainWindow):
             if "pin" in mapped_data and mapped_data["pin"] and not mapped_data.get("mpin"):
                  mapped_data["mpin"] = mapped_data["pin"]
 
-            print(f"DEBUG: Mapped data for dialog: {mapped_data}")
             dialog.set_inputs(mapped_data)
 
-            print("DEBUG: Showing dialog")
             dialog.show()
             if dialog.exec_():
-                print("DEBUG: Dialog accepted")
                 updated_data = dialog.get_inputs()
                 self.update_account_in_json(broker, client_id, updated_data)
-            else:
-                print("DEBUG: Dialog execution finished (rejected or closed)")
         except Exception as e:
-            print(f"DEBUG: Exception in modify_selected_account: {e}")
             import traceback
             traceback.print_exc()
             fail_box_alert("Crash Error", f"An error occurred: {e}")
