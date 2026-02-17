@@ -55,7 +55,8 @@ QPushButton#delete_acc_btn:hover {
 }
 
 QPushButton#login_to_all_btn,
-QPushButton#login_to_fail_btn {
+QPushButton#login_to_fail_btn,
+QPushButton#login_selected_btn {
     background-color: #52B788;
     border: 1px solid #52B788;
     font-size: 11pt;
@@ -65,7 +66,8 @@ QPushButton#login_to_fail_btn {
 }
 
 QPushButton#login_to_all_btn:hover,
-QPushButton#login_to_fail_btn:hover {
+QPushButton#login_to_fail_btn:hover,
+QPushButton#login_selected_btn:hover {
     background-color: #40A373;
     border: 1px solid #40A373;
 }
@@ -280,6 +282,19 @@ QStatusBar {
         </property>
         <property name="text">
          <string>Login Failed/Logged Out</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="login_selected_btn">
+        <property name="minimumSize">
+         <size>
+          <width>160</width>
+          <height>50</height>
+         </size>
+        </property>
+        <property name="text">
+         <string>Login Selected</string>
         </property>
        </widget>
       </item>

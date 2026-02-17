@@ -42,7 +42,8 @@ class ExecutorWorker(QThread):
         all_login: bool = True,
         parent=None,
         is_headless: bool = True,
-        max_concurrent: int = None
+        max_concurrent: int = None,
+        selected_accounts: List[Tuple[str, str]] = None  # List of (broker, client_id)
     ):
         """
         Initialize the executor worker.
@@ -53,12 +54,14 @@ class ExecutorWorker(QThread):
             parent: Parent QObject
             is_headless: Run browser in headless mode
             max_concurrent: Maximum concurrent logins (auto-detect if None)
+            selected_accounts: Optional list of (broker, client_id) to login specific accounts
         """
         super(ExecutorWorker, self).__init__(parent)
         self.data_dir = data_dir
         self.all_login = all_login
         self.is_headless = is_headless
         self.max_concurrent = max_concurrent or detect_optimal_concurrency()
+        self.selected_accounts = selected_accounts
         self._stop_requested = False
         
     def request_stop(self):
@@ -121,11 +124,24 @@ class ExecutorWorker(QThread):
         
         # Build list of (broker, account) tuples to process
         login_tasks: List[Tuple[str, dict]] = []
-        for broker, account_list in accounts.items():
-            for account in account_list:
-                if not self.all_login and account.get('status') == "Logged In":
-                    continue
-                login_tasks.append((broker, account))
+        
+        if self.selected_accounts:
+            # Login only specific accounts
+            target_map = {} # (broker_key, client_id) -> bool
+            for broker_key, client_id in self.selected_accounts:
+                 target_map[(broker_key, client_id)] = True
+            
+            for broker, account_list in accounts.items():
+                for account in account_list:
+                    if (broker, account.get('client_id')) in target_map:
+                        login_tasks.append((broker, account))
+        else:
+            # Standard logic (All or Failed only)
+            for broker, account_list in accounts.items():
+                for account in account_list:
+                    if not self.all_login and account.get('status') == "Logged In":
+                        continue
+                    login_tasks.append((broker, account))
         
         total = len(login_tasks)
         if total == 0:

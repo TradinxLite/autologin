@@ -97,6 +97,7 @@ class AutoLogin(QMainWindow):
         self.login_to_fail_btn.clicked.connect(self.login_to_failed_accounts)
         self.login_to_all_btn.clicked.connect(self.start_login_to_all_accounts)
         self.export_acc_button.clicked.connect(self.export_all_to_csv)
+        self.login_selected_btn.clicked.connect(self.start_login_to_selected_accounts)
         self.import_acc_button.clicked.connect(self.import_acc_from_csv)
         self.background_button.clicked.connect(self.set_headless)
         self.modify_acc_button.clicked.connect(self.modify_selected_account)
@@ -115,8 +116,13 @@ class AutoLogin(QMainWindow):
         
         self.refresh_accounts_in_table()
         self.table_functions()
-        # Enforce single selection mode
-        self.accounts_table.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
+        
+        # Context Menu
+        self.accounts_table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.accounts_table.customContextMenuRequested.connect(self.show_context_menu)
+
+        # Enable multi-selection for bulk actions
+        self.accounts_table.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
         self.load_user_preferences()
         self.setup_menu_bar()
 
@@ -266,7 +272,7 @@ class AutoLogin(QMainWindow):
         Angel One, Zerodha, Upstox, Fyers, ShareKhan, Motilal Oswal, 
         Nuvama, Jainam Lite, Kotak Neo, 5Paisa, Dhan, Firstock</p>
         
-        <p><i>Version: 1.0</i></p>
+        <p><i>Version: 1.0.21</i></p>
         """
 
         msg = QMessageBox()
@@ -313,15 +319,90 @@ class AutoLogin(QMainWindow):
     
     def on_login_started(self):
         for b in (self.login_to_all_btn, self.login_to_fail_btn, self.delete_acc_btn,
-                  self.modify_acc_button, self.import_acc_button, self.export_acc_button):
+                  self.modify_acc_button, self.import_acc_button, self.export_acc_button,
+                  self.login_selected_btn):
             b.setEnabled(False)
         self.statusBar().showMessage("Login process running... Please wait.")
 
     def on_login_finished(self):
         for b in (self.login_to_all_btn, self.login_to_fail_btn, self.delete_acc_btn,
-                  self.modify_acc_button, self.import_acc_button, self.export_acc_button):
+                  self.modify_acc_button, self.import_acc_button, self.export_acc_button,
+                  self.login_selected_btn):
             b.setEnabled(True)
         self.statusBar().showMessage("Login process completed", 5000)
+
+    def show_context_menu(self, position):
+        menu = QtWidgets.QMenu()
+        
+        login_action = menu.addAction("Login")
+        modify_action = menu.addAction("Modify")
+        delete_action = menu.addAction("Delete")
+        
+        action = menu.exec_(self.accounts_table.mapToGlobal(position))
+        
+        if action == login_action:
+            self.start_login_to_selected_accounts()
+        elif action == modify_action:
+            self.modify_selected_account()
+        elif action == delete_action:
+            self.delete_selected_account()
+
+    def get_selected_accounts_info(self):
+        """Helper to get list of (broker, client_id) for selected rows"""
+        selected_rows = self.accounts_table.selectionModel().selectedRows()
+        if not selected_rows:
+            return []
+            
+        accounts_to_process = []
+        
+        reverse_broker_map = {
+            "Angel One": "angel_one",
+            "Zerodha": "zerodha",
+            "Upstox": "upstox",
+            "Sharekhan": "sharekhan",
+            "Motilal Oswal": "motilal",
+            "Nuvama": "nuvama",
+            "KotakNeo": "kotakneo",
+            "Jainam Lite": "jainamlite",
+            "Fyers": "fyers",
+            "5Paisa": "fivepaisa",
+            "Dhan": "dhan",
+            "Firstock": "firstock",
+            "Pocketful": "pocketful",
+        }
+        
+        for index in selected_rows:
+            # Use data directly from logic similar to delete/modify
+            try:
+                account_data = self.accounts_table.model()._data.iloc[index.row()]
+                display_broker = account_data['Broker']
+                broker = reverse_broker_map.get(display_broker, display_broker.lower().replace(" ", "_"))
+                client_id = account_data['Client ID']
+                accounts_to_process.append((broker, client_id))
+            except Exception as e:
+                logging.error(f"Error getting account info for row {index.row()}: {e}")
+                
+        return accounts_to_process
+
+    def start_login_to_selected_accounts(self):
+        selected_accounts = self.get_selected_accounts_info()
+        count = len(selected_accounts)
+        
+        if count == 0:
+            fail_box_alert("Selection Error", "Please select at least one account to login.")
+            return
+
+        self.on_login_started()
+        
+        # Pass selected accounts to worker
+        self.executor_worker = ExecutorWorker(
+            self.data_dir, 
+            is_headless=self.is_headless,
+            selected_accounts=selected_accounts
+        )
+        self.executor_worker.status.connect(self.update_status)
+        self.executor_worker.finished.connect(self.on_login_finished) 
+        self.executor_worker.start()
 
     def delete_selected_account(self):
         if self.accounts_table.currentIndex().row() == -1:
@@ -953,10 +1034,19 @@ class AutoLogin(QMainWindow):
 
     def modify_selected_account(self):
         try:
-            selected_row = self.accounts_table.currentIndex().row()
-            if selected_row == -1:
+            selected_rows = self.accounts_table.selectionModel().selectedRows()
+            if not selected_rows:
                 fail_box_alert("Error", "Select an account to modify")
                 return
+            
+            if len(selected_rows) > 1:
+                fail_box_alert("Error", "Please select only one account to modify")
+                return
+
+            selected_row = selected_rows[0].row()
+            # if selected_row == -1: # Redundant with above check
+            #    fail_box_alert("Error", "Select an account to modify")
+            #    return
 
             # Use data directly from the model to ensure sorted order is respected
             model = self.accounts_table.model()
