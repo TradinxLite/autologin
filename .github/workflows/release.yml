@@ -153,14 +153,24 @@ jobs:
           echo "Artifacts structure:"
           ls -laR artifacts/ || echo "No artifacts found"
       
+      - name: Generate Changelog
+        uses: orhun/git-cliff-action@v3
+        id: git-cliff
+        with:
+          config: cliff.toml
+          args: --verbose --latest --strip header
+        env:
+          OUTPUT: CHANGELOG.md
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
+          body: ${{ steps.git-cliff.outputs.content }}
           files: |
             artifacts/windows/*
             artifacts/macos/*
             artifacts/linux/*
-          generate_release_notes: true
+          generate_release_notes: false
           draft: false
           prerelease: false
           fail_on_unmatched_files: false
