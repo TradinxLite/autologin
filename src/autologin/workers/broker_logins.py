@@ -831,7 +831,7 @@ async def run_pocketful_login(page: Page, account: dict) -> dict:
         base64_account = base64.b64encode(encoded_account)
         new_client_id = base64_account.decode("ascii")
         
-        url = f"https://trade.pocketful.in/oauth2/auth?scope=orders+holdings&state={new_client_id}&redirect-uri=https://cirrus.trade/add-broker-account/pocketful&response_type=code&client_id=Uadzbmlkks"
+        url = f"https://trade.pocketful.in/oauth2/auth?scope=orders+holdings&state={new_client_id}&redirect-uri=https://cirrus.pocketful.in/add-broker-account/pocketful&response_type=code&client_id=N6DKVVOmCe"
         await page.goto(url, wait_until='domcontentloaded')
         await asyncio.sleep(3)
         
