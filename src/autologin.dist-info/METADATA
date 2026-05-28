@@ -1,8 +1,9 @@
 Metadata-Version: 2.1
-Briefcase-Version: 0.3.22
+Briefcase-Version: 0.3.24
 Name: autologin
 Formal-Name: AutoLogin
 App-ID: trade.autologin.autologin
-Version: 0.0.1
-Download-URL: 
+Version: 1.0.22
+Home-page: https://github.com/TradinxLite/autologin
+Download-URL: https://github.com/TradinxLite/autologin
 Summary: Automatically login into your trading platform accounts
