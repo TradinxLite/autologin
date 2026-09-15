@@ -129,7 +129,11 @@ jobs:
     if: always() && needs.build-windows.result == 'success'
     runs-on: ubuntu-latest
     steps:
+      # Full history, otherwise git-cliff only sees the tagged commit and the
+      # generated changelog drops everything else released since the last tag.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       
       - name: Download Windows artifact
         uses: actions/download-artifact@v4
