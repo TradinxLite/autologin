@@ -39,6 +39,11 @@ from autologin.dialogs.how_to_add_fivepaisa import HowToAddFivePaisaDialog
 from autologin.utils.alert_box import fail_box_alert, ok_box_alert
 from autologin.utils.table_model import pandasModel
 from autologin.utils.install_browser import ensure_browser_installed
+from autologin.utils.datetime_utils import (
+    CANONICAL_FORMAT,
+    normalize_datetime,
+    parse_datetime,
+)
 from autologin.utils.updater import (
     get_current_version, check_for_updates, UpdateChecker
 )
@@ -606,8 +611,8 @@ class AutoLogin(QMainWindow):
                 "api_key":       row.get("api_key", ""),
                 "user_key":      row.get("user_key", ""),
                 "api_secret":    row.get("api_secret", ""),
-                "added_on":      row.get("added_on", "") or now_str,
-                "last_login":    row.get("last_login", ""),
+                "added_on":      normalize_datetime(row.get("added_on", "")) or now_str,
+                "last_login":    normalize_datetime(row.get("last_login", "")),
                 "status":        row.get("status", "") or "Logged Out",
             }
 
@@ -656,41 +661,23 @@ class AutoLogin(QMainWindow):
             return
 
         data = []
+        dirty = False
         for broker, account_list in accounts.items():
             for account in account_list:
-                # Only attempt to parse last_login when present and status is Logged In
-                try:
-                    if account.get('status') == "Logged In":
-                        last_login_raw = account.get('last_login')
-                        if last_login_raw:
-                            try:
-                                last_login_dt = datetime.strptime(last_login_raw, "%Y-%m-%d %H:%M:%S")
-                                current_time = datetime.now()
-                                if last_login_dt.date() != current_time.date() and last_login_dt.hour >= 5:
-                                    account['status'] = "Logged Out"
-                                    account['last_login'] = ""
-                                    # persist change
-                                    try:
-                                        with open(json_path, "w") as f:
-                                            json.dump(accounts, f)
-                                    except Exception as e:
-                                        logging.error(f"Failed to write accounts.json while exporting: {e}")
-                            except Exception:
-                                # Malformed last_login -> mark logged out to avoid crashes
-                                account['status'] = "Logged Out"
-                                account['last_login'] = ""
-                                try:
-                                    with open(json_path, "w") as f:
-                                        json.dump(accounts, f)
-                                except Exception as e:
-                                    logging.error(f"Failed to write accounts.json while exporting: {e}")
-                except Exception as e:
-                    logging.error(f"Unexpected error while preparing export row: {e}")
+                if self._refresh_account_session_state(account):
+                    dirty = True
 
                 data.append({
                     "broker": broker,
                     **account
                 })
+
+        if dirty:
+            try:
+                with open(json_path, "w") as f:
+                    json.dump(accounts, f)
+            except Exception as e:
+                logging.error(f"Failed to write accounts.json while exporting: {e}")
 
         df = pd.DataFrame(data)
         if df.empty:
@@ -749,6 +736,44 @@ class AutoLogin(QMainWindow):
             msg.setStandardButtons(QMessageBox.Ok)
             msg.exec_()
 
+    def _refresh_account_session_state(self, account):
+        """Normalise an account's timestamps and expire a stale session.
+
+        Returns True when the account changed and accounts.json needs to be
+        rewritten. A last_login that cannot be parsed -- hand-edited JSON, or a
+        CSV that a spreadsheet rewrote as '13-07-2026 09:29' -- is treated as
+        expired instead of raising, so one bad row can no longer stop the app
+        from starting.
+        """
+        changed = False
+
+        added_on = normalize_datetime(account.get("added_on", ""))
+        if added_on != account.get("added_on", ""):
+            account["added_on"] = added_on
+            changed = True
+
+        if account.get("status") != "Logged In":
+            return changed
+
+        last_login = parse_datetime(account.get("last_login", ""))
+        if last_login is None:
+            account["status"] = "Logged Out"
+            account["last_login"] = ""
+            return True
+
+        current_time = datetime.now()
+        if last_login.date() != current_time.date() and last_login.hour >= 5:
+            account["status"] = "Logged Out"
+            account["last_login"] = ""
+            return True
+
+        canonical = last_login.strftime(CANONICAL_FORMAT)
+        if canonical != account.get("last_login"):
+            account["last_login"] = canonical
+            changed = True
+
+        return changed
+
     def refresh_accounts_in_table(self):
         accounts = {}
         file_available = os.path.exists(f"{self.data_dir}/accounts.json")
@@ -763,21 +788,24 @@ class AutoLogin(QMainWindow):
                 self.accounts_df = pd.DataFrame(columns=["broker", "client_id"])
                 return
         data = []
+        dirty = False
         for broker, account_list in accounts.items():
             for account in account_list:
-                if account['status'] == "Logged In":
-                    last_login = datetime.strptime(account['last_login'], "%Y-%m-%d %H:%M:%S")
-                    current_time = datetime.now()
-                    if last_login.date() != current_time.date() and last_login.hour >= 5:
-                        account['status'] = "Logged Out"
-                        account['last_login'] = ""
-                        with open(f"{self.data_dir}/accounts.json", "w") as f:
-                            json.dump(accounts, f)
+                if self._refresh_account_session_state(account):
+                    dirty = True
 
                 data.append({
                     "broker": broker,
                     **account
                 })
+
+        if dirty:
+            try:
+                with open(f"{self.data_dir}/accounts.json", "w") as f:
+                    json.dump(accounts, f)
+            except Exception as e:
+                logging.error(f"Failed to write accounts.json while refreshing: {e}")
+
         df = pd.DataFrame(data)
         if df.empty:
             df = pd.DataFrame(columns=["broker", "client_id"])
